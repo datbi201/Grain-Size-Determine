@@ -11,7 +11,7 @@ Cập nhật lần cuối: 2026-11-21.
 
 ## Việc đang chờ
 1. Người dùng chạy thử Rev 0.1 và báo lại.
-2. Kho GitHub `Grain-Size-Determine`: đã có commit cục bộ (nhánh `main`); chưa có remote. Máy này chưa có `gh`, cần người dùng tạo kho trống (Private) trên GitHub hoặc cho phép cài `gh`, rồi `git remote add origin https://github.com/datbi201/Grain-Size-Determine.git` và `git push -u origin main`.
+2. Kho GitHub: `https://github.com/datbi201/Grain-Size-Determine` (**Public**, nhánh `main`, tạo ngày 2026-11-21 bằng `gh`). `gh` 2.105.0 cài ở `%LOCALAPPDATA%\Programs\GitHubCLI` (đã thêm vào PATH người dùng). Trước mỗi lần commit chạy `git pull --rebase origin main`.
 3. Đề xuất: kiểm chứng trên bộ ảnh có kết quả đếm tay của PTN; dịch báo cáo sang tiếng Anh nếu cần; nhãn thước bằng OCR để khỏi nhập µm.
 
 ## Môi trường build trên máy này
@@ -24,3 +24,4 @@ Cập nhật lần cuối: 2026-11-21.
 - 2026-11-20: phần mềm GUI hoàn chỉnh thay cho script kéo thả.
 - 2026-11-21: chuẩn hoá theo E112-25 / E1382; kế thừa tính toán đã cân chỉnh của GSCM Rev.0.1 RC7; thêm Chord hỗn hợp (3 vòng tròn + 2 đường chéo); báo cáo PDF A4; chỉnh sáng/tương phản; chọn màu; sửa giao điểm thủ công.
 - 2026-11-21: nút Tự động chỉnh ảnh; không che tối vùng thước; cột «Báo cáo» chọn ảnh đưa vào báo cáo; báo cáo chọn được cả 3 phương pháp, có xem trước; biểu tượng mới cách điệu từ ảnh kim tương; lưu/mở project, hỏi lưu khi đóng; tổ chức thư mục 3 tầng như các dự án khác; kho mới `Grain-Size-Determine`, bắt đầu Rev 0.1.
+- 2026-11-21: cài `gh`; kho `Grain-Size-Determine` để **Public**.
