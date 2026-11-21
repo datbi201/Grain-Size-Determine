@@ -133,6 +133,41 @@ pub struct App {
     pending: usize,
     done: usize,
     frame: u64,
+    selected: std::collections::BTreeSet<u64>,
+    last_click: Option<u64>,
+    preview: Option<Preview>,
+}
+
+/// Cửa sổ xem trước báo cáo (trang PDF đã dựng thành ảnh bằng pdfium).
+struct Preview {
+    path: String,
+    pages: Vec<egui::TextureHandle>,
+    page: usize,
+}
+
+fn render_pdf_pages(ctx: &egui::Context, path: &str) -> Result<Vec<egui::TextureHandle>, String> {
+    use pdfium_render::prelude::*;
+    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())).unwrap_or_default();
+    let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(&exe_dir))
+        .or_else(|_| Pdfium::bind_to_system_library())
+        .map_err(|e| format!("không nạp được pdfium.dll (đặt cạnh tệp exe): {e:?}"))?;
+    let pdfium = Pdfium::new(bindings);
+    let doc = pdfium.load_pdf_from_file(path, None).map_err(|e| format!("{e:?}"))?;
+    let mut out = vec![];
+    for (i, page) in doc.pages().iter().enumerate() {
+        let bmp = page.render_with_config(&PdfRenderConfig::new().set_target_width(1240)).map_err(|e| format!("{e:?}"))?;
+        let img = bmp.as_image().to_rgba8();
+        let (w, h) = (img.width() as usize, img.height() as usize);
+        let ci = egui::ColorImage::from_rgba_unmultiplied([w, h], img.as_raw());
+        out.push(ctx.load_texture(format!("pdfpage{i}"), ci, egui::TextureOptions::LINEAR));
+    }
+    Ok(out)
+}
+
+fn print_file(path: &str) -> Result<(), String> {
+    let st = std::process::Command::new("powershell").args(["-NoProfile", "-Command",
+        &format!("Start-Process -FilePath '{}' -Verb Print", path.replace('\'', "''"))]).status().map_err(|e| e.to_string())?;
+    if st.success() { Ok(()) } else { Err("Windows chưa có chương trình đọc PDF hỗ trợ lệnh In.".into()) }
 }
 
 impl App {
@@ -191,6 +226,7 @@ impl App {
             title_shown: String::new(), allow_close: false, settings,
             report: ReportForm { per_page: 2, images: true, methods: [true, false, false], ..Default::default() },
             help_open: false, about_open: false, job_tx, res_rx, pending: 0, done: 0, frame: 0,
+            selected: Default::default(), last_click: None, preview: None,
         };
         if let Some(a) = args.first() {
             if a.to_lowercase().ends_with(".gsd") {
@@ -330,14 +366,33 @@ impl App {
         }
     }
 
-    fn remove_current(&mut self) {
-        if let Some(id) = self.cur {
-            self.items.retain(|i| i.id != id);
+    /// Các ảnh đang chọn trong bảng (Ctrl/Shift + click); nếu chưa chọn thì là ảnh đang xem.
+    fn selection(&self) -> Vec<u64> {
+        let v: Vec<u64> = self.items.iter().filter(|i| self.selected.contains(&i.id)).map(|i| i.id).collect();
+        if v.is_empty() { self.cur.into_iter().collect() } else { v }
+    }
+
+    fn remove_selected(&mut self) {
+        let ids = self.selection();
+        if ids.is_empty() {
+            return;
+        }
+        if ids.len() > 1 && std::env::var("GSD_SHOT").is_err() && !ask_yes_no(APP_NAME, &format!("Xóa {} ảnh đã chọn khỏi danh sách? (tệp ảnh gốc không bị xóa)", ids.len())) {
+            return;
+        }
+        let n = ids.len();
+        self.items.retain(|i| !ids.contains(&i.id));
+        self.selected.clear();
+        if self.cur.map_or(false, |c| ids.contains(&c)) {
             self.cur = None;
             self.cur_img = None;
             self.tex = None;
-            self.set_dirty();
+            if let Some(id) = self.items.first().map(|i| i.id) {
+                self.select(id);
+            }
         }
+        self.status = format!("Đã xóa {n} ảnh khỏi danh sách.");
+        self.set_dirty();
     }
 
     // ========================================================== thang đo ===
@@ -698,6 +753,18 @@ impl App {
         Some(gsd_core::draw::render(&base, it.data.as_ref(), m, &self.colors, self.show_bound, true))
     }
 
+    /// Ảnh kết quả kèm dòng thông số (dùng khi lưu ảnh).
+    fn render_item_banner(&self, it: &Item, m: Method) -> Option<gsd_core::Rgb> {
+        let mut img = self.render_item(it, m)?;
+        if let Some(r) = it.res(m) {
+            if let (Some(l), Some(g)) = (r.lbar_um, r.g) {
+                let t = format!("{}  P={}  l={:.2} µm  G={:.2}  ({:.4} µm/px)", method_short(m), r.p, l, g, it.um_per_px.unwrap_or(0.0));
+                crate::textdraw::banner(&mut img, &t);
+            }
+        }
+        Some(img)
+    }
+
     fn export_csv(&mut self) {
         let its = self.included();
         if its.is_empty() {
@@ -746,7 +813,7 @@ impl App {
         for id in ids {
             let it = &self.items[self.idx(id).unwrap()];
             for r in &it.data.as_ref().unwrap().methods {
-                if let Some(img) = self.render_item(it, r.method) {
+                if let Some(img) = self.render_item_banner(it, r.method) {
                     let stem = std::path::Path::new(&it.name).file_stem().unwrap().to_string_lossy().to_string();
                     let out = dir.join(format!("{stem}_{}.jpg", r.method.name()));
                     if let Some(buf) = image::RgbImage::from_raw(img.w as u32, img.h as u32, img.d) {
@@ -843,6 +910,22 @@ impl eframe::App for App {
                 if std::env::var("GSD_SHOT_EDIT").is_ok() { self.edit = true; }
                 if let Ok(v) = std::env::var("GSD_SHOT_VIEW") { if let Some(m) = method_from(&v) { self.view = m; } }
                 if std::env::var("GSD_SHOT_REPORT").is_ok() { self.open_report(); }
+                if std::env::var("GSD_SHOT_PREVIEW").is_ok() {
+                    self.open_report();
+                    self.report.methods = [true, true, true];
+                    let p = std::env::temp_dir().join("GSD_shot_preview.pdf").to_string_lossy().to_string();
+                    if self.make_report(&p).is_ok() {
+                        match render_pdf_pages(ctx, &p) {
+                            Ok(pages) => { self.preview = Some(Preview { path: p, pages, page: 0 }); self.report.open = false; }
+                            Err(e) => self.status = e,
+                        }
+                    }
+                }
+                if let Ok(v) = std::env::var("GSD_SHOT_SELECT") {
+                    let ids: Vec<u64> = v.split(',').filter_map(|s| s.parse::<usize>().ok()).filter_map(|k| self.items.get(k).map(|i| i.id)).collect();
+                    self.selected.extend(ids);
+                    if std::env::var("GSD_SHOT_DELETE").is_ok() { self.remove_selected(); }
+                }
             }
             if self.frame == 40 {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
@@ -895,8 +978,11 @@ impl eframe::App for App {
             i.modifiers.command && i.key_pressed(egui::Key::Z), !i.modifiers.command && i.key_pressed(egui::Key::E),
             i.key_pressed(egui::Key::Escape)));
         if f5 {
-            let ids: Vec<u64> = self.cur.into_iter().collect();
+            let ids = self.selection();
             self.queue(ids, true);
+        }
+        if !typing && ctx.input(|i| i.key_pressed(egui::Key::Delete)) {
+            self.remove_selected();
         }
         if ctrl_s {
             self.save_project(false);
@@ -964,10 +1050,10 @@ impl App {
                 ui.separator();
                 if ui.button("➕ Thêm ảnh").clicked() { self.pick_files(); }
                 if ui.button("📁 Thư mục").clicked() { self.pick_folder(); }
-                if ui.button("✖ Xóa ảnh đang xem").clicked() { self.remove_current(); }
+                if ui.button("✖ Xóa ảnh chọn").on_hover_text("Ctrl/Shift + click tên ảnh trong bảng để chọn nhiều ảnh; phím Delete").clicked() { self.remove_selected(); }
                 ui.separator();
-                if ui.button(egui::RichText::new("▶ Đo ảnh đang xem (F5)").strong()).clicked() {
-                    let ids: Vec<u64> = self.cur.into_iter().collect();
+                if ui.button(egui::RichText::new("▶ Đo ảnh chọn (F5)").strong()).clicked() {
+                    let ids = self.selection();
                     self.queue(ids, true);
                 }
                 if ui.button("⏩ Đo tất cả").clicked() {
@@ -1171,6 +1257,8 @@ impl App {
     fn table(&mut self, ui: &mut egui::Ui) {
         let mut select = None;
         let mut toggled = false;
+        let (ctrl, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
+        let mut clicked: Option<u64> = None;
         egui::ScrollArea::both().max_height(175.0).auto_shrink([false, false]).show(ui, |ui| {
             egui::Grid::new("items").striped(true).min_col_width(40.0).show(ui, |ui| {
                 let all = !self.items.is_empty() && self.items.iter().all(|i| i.include);
@@ -1179,7 +1267,8 @@ impl App {
                     self.items.iter_mut().for_each(|i| i.include = all2);
                     toggled = true;
                 }
-                for h in ["Ảnh", "µm/px", "Abrams P", "Abrams G", "Heyn P", "Heyn G", "Chord HH P", "Chord HH G", "Trạng thái / ghi chú"] {
+                let nsel = self.selected.len();
+                for h in [if nsel > 1 { "Ảnh (đã chọn nhiều)" } else { "Ảnh" }, "µm/px", "Abrams P", "Abrams G", "Heyn P", "Heyn G", "Chord HH P", "Chord HH G", "Trạng thái / ghi chú"] {
                     ui.label(egui::RichText::new(h).strong());
                 }
                 ui.end_row();
@@ -1187,8 +1276,9 @@ impl App {
                     if ui.checkbox(&mut it.include, "").changed() {
                         toggled = true;
                     }
-                    if ui.selectable_label(Some(it.id) == self.cur, &it.name).clicked() {
-                        select = Some(it.id);
+                    let sel = self.selected.contains(&it.id) || (self.selected.is_empty() && Some(it.id) == self.cur);
+                    if ui.selectable_label(sel, &it.name).on_hover_text("Ctrl + click: chọn thêm · Shift + click: chọn dải").clicked() {
+                        clicked = Some(it.id);
                     }
                     ui.label(it.um_per_px.map(|u| format!("{u:.4}")).unwrap_or("–".into()));
                     for m in METHODS {
@@ -1205,6 +1295,26 @@ impl App {
         });
         if toggled {
             self.set_dirty();
+        }
+        if let Some(id) = clicked {
+            if ctrl {
+                if !self.selected.remove(&id) {
+                    if self.selected.is_empty() {
+                        if let Some(c) = self.cur { self.selected.insert(c); }
+                    }
+                    self.selected.insert(id);
+                }
+            } else if shift {
+                let anchor = self.last_click.or(self.cur).unwrap_or(id);
+                let (a, b) = (self.idx(anchor).unwrap_or(0), self.idx(id).unwrap_or(0));
+                self.selected = self.items[a.min(b)..=a.max(b)].iter().map(|i| i.id).collect();
+            } else {
+                self.selected.clear();
+            }
+            if !shift {
+                self.last_click = Some(id);
+            }
+            select = Some(id);
         }
         if let Some(id) = select {
             if Some(id) != self.cur {
@@ -1493,6 +1603,17 @@ impl App {
                     };
                     if let Some(p) = path {
                         match self.make_report(&p) {
+                            Ok(()) if action == 1 => {
+                                match render_pdf_pages(ctx, &p) {
+                                    Ok(pages) => self.preview = Some(Preview { path: p.clone(), pages, page: 0 }),
+                                    Err(e) => {
+                                        info(APP_NAME, &format!("Không hiển thị được xem trước ({e}). Mở bằng trình đọc PDF của Windows."));
+                                        open_with_system(&p);
+                                    }
+                                }
+                                self.settings["report"] = self.report_json();
+                                self.save_settings();
+                            }
                             Ok(()) => {
                                 open_with_system(&p);
                                 if action == 2 {
@@ -1506,6 +1627,70 @@ impl App {
                         }
                     }
                 }
+            }
+        }
+        if self.preview.is_some() {
+            let mut open = true;
+            let mut act = 0;
+            let (n, page) = { let pv = self.preview.as_ref().unwrap(); (pv.pages.len(), pv.page) };
+            egui::Window::new("Xem trước báo cáo").open(&mut open)
+                .default_size([860.0, (ctx.screen_rect().height() - 40.0).min(1100.0)]).default_pos([60.0, 10.0]).resizable(true)
+                .collapsible(false).show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(page > 0, egui::Button::new("◀ Trang trước")).clicked() { act = 1; }
+                    ui.label(format!("Trang {}/{}", page + 1, n));
+                    if ui.add_enabled(page + 1 < n, egui::Button::new("Trang sau ▶")).clicked() { act = 2; }
+                    ui.separator();
+                    if ui.button(egui::RichText::new("💾 Lưu PDF…").strong()).clicked() { act = 3; }
+                    if ui.button("🖨 In…").clicked() { act = 4; }
+                    if ui.button("Đóng").clicked() { act = 5; }
+                });
+                ui.separator();
+                let pv = self.preview.as_ref().unwrap();
+                if let Some(tex) = pv.pages.get(page) {
+                    let ts = tex.size_vec2();
+                    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+                        let w = ui.available_width().max(200.0);
+                        let size = Vec2::new(w, w * ts.y / ts.x);
+                        let r = ui.add(egui::Image::new((tex.id(), size)).sense(egui::Sense::hover()));
+                        if r.hovered() {
+                            let s = ui.input(|i| i.raw_scroll_delta.y);
+                            let _ = s;
+                        }
+                    });
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::PageDown)) && page + 1 < n { act = 2; }
+                if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::PageUp)) && page > 0 { act = 1; }
+            });
+            match act {
+                1 => self.preview.as_mut().unwrap().page -= 1,
+                2 => self.preview.as_mut().unwrap().page += 1,
+                3 => {
+                    let name = format!("BaoCao_CoHat_{}.pdf", if self.report.info.sample.is_empty() { "mau".into() } else { self.report.info.sample.replace(' ', "_") });
+                    if let Some(dst) = rfd::FileDialog::new().set_title("Lưu báo cáo PDF").add_filter("PDF", &["pdf"]).set_file_name(&name).save_file() {
+                        let src = self.preview.as_ref().unwrap().path.clone();
+                        match std::fs::copy(&src, &dst) {
+                            Ok(_) => {
+                                self.status = format!("Đã lưu báo cáo: {}", dst.display());
+                                self.preview = None;
+                                self.report.open = false;
+                            }
+                            Err(e) => info(APP_NAME, &format!("Không ghi được tệp PDF (đang mở ở chương trình khác?): {e}")),
+                        }
+                    }
+                }
+                4 => {
+                    let src = self.preview.as_ref().unwrap().path.clone();
+                    match print_file(&src) {
+                        Ok(()) => self.status = "Đã gửi báo cáo tới máy in (qua chương trình đọc PDF mặc định).".into(),
+                        Err(e) => info(APP_NAME, &format!("Không in được: {e}")),
+                    }
+                }
+                5 => self.preview = None,
+                _ => {}
+            }
+            if !open {
+                self.preview = None;
             }
         }
         if self.help_open {

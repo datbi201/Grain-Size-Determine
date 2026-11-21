@@ -11,12 +11,12 @@ Cập nhật lần cuối: 2026-11-21.
 
 - **Bản thử lõi Rust** (`rust-core/`, 2026-11-21): port 1:1 lõi tính, chưa có giao diện. Đối chiếu bản Python trên 40 ảnh mẫu: |ΔG| trung bình 0,001, lớn nhất 0,019; nhanh hơn ~1,7 lần; exe lõi 1,8 MB. Chi tiết: `rust-core/README.md`.
 
-- **Rev 0.1.1_rust** (nhánh `rust-gui`, 2026-11-21): giao diện Rust (egui) trong `rust-app/`, đủ chức năng Rev 0.1. Tự kiểm tra `--selftest` đạt (đo, sửa thủ công, lưu/mở project, PDF); project mở chéo với bản Python cho G trùng nhau; giao diện chụp bằng chế độ `GSD_SHOT`. Exe: `..\02_LOCAL_RUNTIME\GrainSizeDetermine_rust\GrainSizeDetermine_rust.exe` (9,8 MB). Chưa thử bằng chuột thật (máy khoá màn hình lúc kiểm thử). Chi tiết: `rust-app/README.md`.
+- **Rev 0.1.1_rust** (nhánh `rust-gui`, 2026-11-21): giao diện Rust (egui) trong `rust-app/`, đủ chức năng Rev 0.1. Tự kiểm tra `--selftest` đạt (đo, sửa thủ công, lưu/mở project, PDF); project mở chéo với bản Python cho G trùng nhau; giao diện chụp bằng chế độ `GSD_SHOT`. Exe: `..\02_LOCAL_RUNTIME\GrainSizeDetermine_rust\GrainSizeDetermine_rust.exe` (9,8 MB). Chưa thử bằng chuột thật (máy khoá màn hình lúc kiểm thử). Chi tiết: `rust-app/README.md`. Đã khắc phục 3 điểm khác bản Python (xem trước PDF trong ứng dụng + In, chữ thông số trên ảnh kết quả, chọn/xóa nhiều ảnh); gói chạy gồm exe + `pdfium.dll`. Tag `v0.1.1_rust` trỏ vào commit đầu của bản Rust (chưa dời tag).
 
 ## Việc đang chờ
 1. Người dùng chạy thử Rev 0.1 và báo lại.
 2. Kho GitHub: `https://github.com/datbi201/Grain-Size-Determine` (**Public**, nhánh `main`, tạo ngày 2026-11-21 bằng `gh`). `gh` 2.105.0 cài ở `%LOCALAPPDATA%\Programs\GitHubCLI` (đã thêm vào PATH người dùng). Trước mỗi lần commit chạy `git pull --rebase origin main`.
-3. Người dùng thử bản Rust 0.1.1_rust (kéo thả, sửa giao điểm bằng chuột, báo cáo) rồi quyết định có gộp nhánh `rust-gui` vào `main` không. Phần còn thiếu ở bản Rust: khung xem trước PDF trong ứng dụng, chữ thông số trên ảnh kết quả.
+3. Người dùng thử bản Rust 0.1.1_rust (kéo thả, sửa giao điểm bằng chuột, báo cáo) rồi quyết định có gộp nhánh `rust-gui` vào `main` không. Bản Rust đã có đủ chức năng như bản Python.
 4. Đề xuất: kiểm chứng trên bộ ảnh có kết quả đếm tay của PTN; dịch báo cáo sang tiếng Anh nếu cần; nhãn thước bằng OCR để khỏi nhập µm.
 
 ## Môi trường build trên máy này
@@ -33,3 +33,4 @@ Cập nhật lần cuối: 2026-11-21.
 - 2026-11-21: cài `gh`; kho `Grain-Size-Determine` để **Public**.
 - 2026-11-21: làm thử lõi tính bằng Rust (giữ bản Python làm chuẩn đối chiếu).
 - 2026-11-21: làm giao diện Rust, đánh số 0.1.1_rust, cho phép tách nhánh (nhánh `rust-gui`).
+- 2026-11-21: khắc phục cả 3 điểm khác bản Python ở bản Rust (xem trước trong ứng dụng, chữ trên ảnh, xóa nhiều ảnh).

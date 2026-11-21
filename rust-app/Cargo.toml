@@ -20,6 +20,8 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 printpdf = "0.7"
 ttf-parser = "0.21"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+pdfium-render = "0.8"
+fontdue = "0.9"
 
 [build-dependencies]
 winresource = "0.1"

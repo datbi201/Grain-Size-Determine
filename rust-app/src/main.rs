@@ -3,6 +3,7 @@
 mod app;
 mod model;
 mod report;
+mod textdraw;
 
 fn icon() -> Option<egui::IconData> {
     let img = image::load_from_memory(include_bytes!("../../assets/app.png")).ok()?.to_rgba8();
@@ -52,7 +53,33 @@ mod selftest {
         let _ = std::fs::create_dir_all(&out);
         let mut log = vec![];
         let mut ok = true;
-        let imgs: Vec<String> = args.iter().skip(1).cloned().collect();
+        let mut imgs: Vec<String> = args.iter().skip(1).cloned().collect();
+        if imgs.is_empty() {
+            // không có ảnh: tạo ảnh tổng hợp Voronoi 600×450 (biên tối trên nền sáng)
+            let (w, h, n) = (600usize, 450usize, 120usize);
+            let mut s = 12345u64;
+            let mut rnd = || { s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); (s >> 11) as f64 / (1u64 << 53) as f64 };
+            let seeds: Vec<(f64, f64)> = (0..n).map(|_| (rnd() * w as f64, rnd() * h as f64)).collect();
+            let lab: Vec<usize> = (0..w * h).map(|i| {
+                let (x, y) = ((i % w) as f64, (i / w) as f64);
+                (0..n).min_by(|&a, &b| ((x - seeds[a].0).powi(2) + (y - seeds[a].1).powi(2)).partial_cmp(&((x - seeds[b].0).powi(2) + (y - seeds[b].1).powi(2))).unwrap()).unwrap()
+            }).collect();
+            let mut im = image::RgbImage::from_pixel(w as u32, h as u32, image::Rgb([200, 200, 200]));
+            for y in 0..h {
+                for x in 0..w {
+                    let l = lab[y * w + x];
+                    let edge = (x + 1 < w && lab[y * w + x + 1] != l) || (y + 1 < h && lab[(y + 1) * w + x] != l);
+                    if edge {
+                        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                            if x + dx < w && y + dy < h { im.put_pixel((x + dx) as u32, (y + dy) as u32, image::Rgb([60, 60, 60])); }
+                        }
+                    }
+                }
+            }
+            let p = format!("{out}/synthetic.png");
+            let _ = im.save(&p);
+            imgs.push(p);
+        }
         let mut items = vec![];
         let mut next = 0u64;
         for p in &imgs {
@@ -110,6 +137,17 @@ mod selftest {
             image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85).encode_image(&rgb).ok()?;
             Some(report::Field { name: it.name.clone(), um_per_px: it.um_per_px?, calib: it.calib.clone(), res: r, jpeg: Some((buf, ov.w, ov.h)) })
         }).collect())).collect();
+        if let Some(it) = items.first() {
+            if let Ok(img) = load(&it.path) {
+                let mut ov = gsd_core::draw::render(&img, it.data.as_ref(), Method::Abrams, &Default::default(), true, true);
+                let r = it.res(Method::Abrams).unwrap();
+                crate::textdraw::banner(&mut ov, &format!("Abrams  P={}  l={:.2} µm  G={:.2}", r.p, r.lbar_um.unwrap_or(0.0), r.g.unwrap_or(0.0)));
+                if let Some(b) = image::RgbImage::from_raw(ov.w as u32, ov.h as u32, ov.d) {
+                    let ok2 = b.save(format!("{out}/selftest_banner.jpg")).is_ok();
+                    log.push(format!("ảnh kết quả có chữ: {ok2}"));
+                }
+            }
+        }
         let pdf = format!("{out}/selftest.pdf");
         let info = report::Info { report_no: "SELFTEST".into(), date: "21/11/2026".into(), sample: "Mẫu thử".into(), ..Default::default() };
         let params = report::RParams { sensitivity: 85.0, focus: true, n_lines: 5, mixed_hv: false, enhance_display: "không".into(), enhance_detect: "ảnh gốc".into() };

@@ -21,7 +21,10 @@ Một tệp `GrainSizeDetermine_rust.exe` khoảng 9,8 MB, không cần cài Pyt
 - Chụp giao diện để kiểm tra (không cần chuột): biến môi trường `GSD_SHOT=<png>` (kèm `GSD_SHOT_VIEW=abrams|heyn|mixed`, `GSD_SHOT_EDIT=1`, `GSD_SHOT_REPORT=1`).
 
 ## Khác bản Python
-- Xem trước báo cáo mở trong trình đọc PDF của Windows (chưa có khung xem trong ứng dụng); lệnh In thực hiện từ trình đọc PDF.
-- Ảnh kết quả lưu ra không có dòng chữ thông số trên ảnh (số liệu có trong báo cáo / CSV).
 - CLAHE trong phần xử lý ảnh áp lên độ sáng rồi nhân tỉ lệ vào 3 kênh màu (bản Python đổi Lab ↔ BGR).
-- Bảng ảnh: chọn ảnh bằng click tên; «Xóa ảnh đang xem» thay cho xoá nhiều dòng.
+
+## Cập nhật 2026-11-21 (khắc phục 3 điểm khác bản Python)
+- **Xem trước báo cáo ngay trong ứng dụng**: cửa sổ lật trang (◀ ▶, phím mũi tên), «Lưu PDF…», «In…» (gửi lệnh In của Windows), «Đóng». Dựng trang bằng PDFium – tệp `pdfium.dll` đặt cạnh exe (thiếu tệp này thì tự mở bằng trình đọc PDF của Windows).
+- **Ảnh kết quả có dòng thông số** (phương pháp, P, ℓ, G, µm/px) trên dải đen góc trên-trái, font Arial của Windows.
+- **Chọn và xóa nhiều ảnh**: Ctrl + click (chọn thêm), Shift + click (chọn dải) trên tên ảnh; «✖ Xóa ảnh chọn» hoặc phím Delete; «▶ Đo ảnh chọn» (F5) đo các ảnh đã chọn.
+- Gói chạy: `GrainSizeDetermine_rust.exe` + `pdfium.dll` + `THIRD-PARTY-NOTICES.txt` (giấy phép PDFium và thành phần). `Bien-dich-Rust.bat` lấy `pdfium.dll` từ `rust-app\vendor\` hoặc từ gói pypdfium2 của Python 3.12.
