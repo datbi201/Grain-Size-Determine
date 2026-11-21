@@ -18,6 +18,7 @@ Cập nhật lần cuối: 2026-11-21.
 - Python 3.12 (`py -3.12`) đã cài đủ thư viện trong `requirements.txt` + `pyinstaller`.
 - Build: `Bien-dich-Windows.bat` (hoặc `py -3.12 tools/build_windows.py`). Thư mục build tạm ở `%TEMP%`.
 - Tạo lại biểu tượng: `py -3.12 tools/gen_icon.py`.
+- Trình đồng bộ thư mục tạo `desktop.ini` cả trong `.git`, làm git báo `bad object refs/desktop.ini`. Gặp lỗi này thì xoá: `find .git -name desktop.ini -delete` (Git Bash) rồi chạy lại lệnh git.
 - Thiết lập người dùng (màu, tham số, scale đã nhập theo ảnh) lưu ở `%APPDATA%\GrainSizeDetermine\settings.json`.
 
 ## Quyết định của người dùng
