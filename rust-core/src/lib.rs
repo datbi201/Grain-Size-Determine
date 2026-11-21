@@ -3,6 +3,8 @@
 //! Port 1:1: trường nhìn tròn, thanh scale đỏ, tách biên (L*, san phẳng nền, CLAHE, black-hat,
 //! ngưỡng phân vị, làm mảnh), loại vùng mờ, lưới Abrams / Heyn / Chord hỗn hợp, đếm giao điểm
 //! (1 / 1,5 / 0,5), ℓ = L/P, G = −6,643856·log10(ℓ[mm]) − 3,288, thống kê E112 §15.
+pub mod draw;
+pub mod enhance;
 pub mod imgproc;
 
 /// In thời gian từng bước khi đặt biến môi trường GSD_DEBUG.
@@ -54,7 +56,7 @@ impl Kind {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Chord {
     Circle { id: String, cx: f64, cy: f64, r: f64 },
     Line { id: String, a: (f64, f64), b: (f64, f64) },
@@ -74,6 +76,10 @@ pub struct Event {
     pub x: f64,
     pub y: f64,
     pub kind: Kind,
+    /// true = người đo thêm thủ công; false = phát hiện tự động
+    pub manual: bool,
+    /// điểm tự động đã bị người đo loại (giữ lại để khôi phục / truy vết)
+    pub removed: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -82,16 +88,32 @@ pub struct MethodResult {
     pub chords: Vec<Chord>,
     pub l_px: Vec<f64>,
     pub events: Vec<Event>,
+    pub edited: bool,
 }
 
+#[derive(Clone)]
 pub struct Analysis {
     pub methods: Vec<MethodResult>,
     pub skeleton: Img<bool>,
     pub valid: Img<bool>,
     pub excluded: f64,
+    /// hộp loại trừ thanh scale (x0, y0, x1, y1) – không làm tối khi hiển thị
+    pub excl: Option<[usize; 4]>,
+    pub params: Params,
+    /// mô tả xử lý ảnh dùng khi tách biên ("" = ảnh gốc)
+    pub enhance_desc: String,
 }
 
-#[derive(Clone, Debug)]
+impl Analysis {
+    pub fn method(&self, m: Method) -> Option<&MethodResult> {
+        self.methods.iter().find(|r| r.method == m)
+    }
+    pub fn method_mut(&mut self, m: Method) -> Option<&mut MethodResult> {
+        self.methods.iter_mut().find(|r| r.method == m)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Params {
     pub sensitivity: f64,
     pub focus: bool,
@@ -106,6 +128,7 @@ impl Default for Params {
 }
 
 /// Ảnh màu RGB 8-bit.
+#[derive(Clone)]
 pub struct Rgb {
     pub w: usize,
     pub h: usize,
@@ -524,7 +547,7 @@ pub fn detect_on_chord(ch: &Chord, bmask: &Img<bool>, valid: &Img<bool>, jmask: 
         } else {
             Kind::Cross
         };
-        ev.push(Event { chord: ch.id().to_string(), x: xs[mid], y: ys[mid], kind });
+        ev.push(Event { chord: ch.id().to_string(), x: xs[mid], y: ys[mid], kind, manual: false, removed: false });
         i = j + 1;
     }
     (l, ev)
@@ -533,6 +556,20 @@ pub fn detect_on_chord(ch: &Chord, bmask: &Img<bool>, valid: &Img<bool>, jmask: 
 // --------------------------------------------------------------------------- //
 //  Phân tích một ảnh
 // --------------------------------------------------------------------------- //
+/// Phân tích với ảnh đã xử lý (nếu có) dùng để tách biên.
+pub fn analyze_enh(img: &Rgb, fov: Option<(f64, f64, f64)>, bar: Option<[usize; 4]>, methods: &[Method], p: &Params,
+                   enh: Option<&enhance::Enhance>) -> Analysis {
+    match enh {
+        Some(e) if !e.is_identity() => {
+            let im2 = enhance::apply(img, e);
+            let mut a = analyze(&im2, fov, bar, methods, p);
+            a.enhance_desc = e.describe();
+            a
+        }
+        _ => analyze(img, fov, bar, methods, p),
+    }
+}
+
 pub fn analyze(img: &Rgb, fov: Option<(f64, f64, f64)>, bar: Option<[usize; 4]>, methods: &[Method], p: &Params) -> Analysis {
     let (w, h) = (img.w, img.h);
     let g = field_geometry(w, h, fov);
@@ -606,10 +643,11 @@ pub fn analyze(img: &Rgb, fov: Option<(f64, f64, f64)>, bar: Option<[usize; 4]>,
             lpx.push(l);
             evs.extend(e);
         }
-        out.push(MethodResult { method: m, chords, l_px: lpx, events: evs });
+        out.push(MethodResult { method: m, chords, l_px: lpx, events: evs, edited: false });
     }
     tick("masks+count", &mut tt);
-    Analysis { methods: out, skeleton, valid, excluded }
+    Analysis { methods: out, skeleton, valid, excluded, excl: bar.map(|b| exclusion_box(b, w, h)), params: p.clone(),
+               enhance_desc: String::new() }
 }
 
 // --------------------------------------------------------------------------- //
@@ -619,7 +657,13 @@ pub fn g_from_l_um(l_um: f64) -> f64 {
     -6.643856 * (l_um / 1000.0).log10() - 3.288
 }
 
+#[derive(Clone, Debug)]
 pub struct Summary {
+    pub n_manual: usize,
+    pub n_removed: usize,
+    pub l_mm: f64,
+    pub l_h: Option<f64>,
+    pub l_v: Option<f64>,
     pub p: f64,
     pub l_um: f64,
     pub lbar_um: Option<f64>,
@@ -630,15 +674,140 @@ pub struct Summary {
 }
 
 pub fn summarize(r: &MethodResult, um_per_px: f64) -> Summary {
-    let p: f64 = r.events.iter().map(|e| e.kind.weight()).sum();
+    let act: Vec<&Event> = r.events.iter().filter(|e| !e.removed).collect();
+    let p: f64 = act.iter().map(|e| e.kind.weight()).sum();
     let l_um = r.l_px.iter().sum::<f64>() * um_per_px;
     let lbar = if p > 0.0 && l_um > 0.0 { Some(l_um / p) } else { None };
+    let dir = |pref: char| -> Option<f64> {
+        let ids: Vec<usize> = r.chords.iter().enumerate().filter(|(_, c)| c.id().starts_with(pref)).map(|(i, _)| i).collect();
+        if ids.is_empty() {
+            return None;
+        }
+        let pp: f64 = act.iter().filter(|e| ids.iter().any(|&i| r.chords[i].id() == e.chord)).map(|e| e.kind.weight()).sum();
+        let l: f64 = ids.iter().map(|&i| r.l_px[i]).sum::<f64>() * um_per_px;
+        if pp > 0.0 { Some(l / pp) } else { None }
+    };
     Summary {
-        p, l_um, lbar_um: lbar, g: lbar.map(g_from_l_um),
-        n_cross: r.events.iter().filter(|e| e.kind == Kind::Cross).count(),
-        n_triple: r.events.iter().filter(|e| e.kind == Kind::Triple).count(),
-        n_end: r.events.iter().filter(|e| e.kind == Kind::Endpoint).count(),
+        p, l_um, l_mm: l_um / 1000.0, lbar_um: lbar, g: lbar.map(g_from_l_um),
+        n_cross: act.iter().filter(|e| e.kind == Kind::Cross).count(),
+        n_triple: act.iter().filter(|e| e.kind == Kind::Triple).count(),
+        n_end: act.iter().filter(|e| e.kind == Kind::Endpoint).count(),
+        n_manual: act.iter().filter(|e| e.manual).count(),
+        n_removed: r.events.iter().filter(|e| e.removed).count(),
+        l_h: if r.method == Method::Heyn { dir('H') } else { None },
+        l_v: if r.method == Method::Heyn { dir('V') } else { None },
     }
+}
+
+pub fn round_g(g: f64) -> f64 {
+    let v = g * 10.0;
+    (if v >= 0.0 { (v + 0.5).floor() } else { -(-v + 0.5).floor() }) / 10.0
+}
+
+// --------------------------------------------------------------------------- //
+//  Sửa giao điểm thủ công
+// --------------------------------------------------------------------------- //
+pub fn project_point(ch: &Chord, x: f64, y: f64) -> (f64, f64, f64) {
+    match ch {
+        Chord::Circle { cx, cy, r, .. } => {
+            let t = (y - cy).atan2(x - cx);
+            let (px, py) = (cx + r * t.cos(), cy + r * t.sin());
+            (px, py, (x - px).hypot(y - py))
+        }
+        Chord::Line { a, b, .. } => {
+            let (vx, vy) = (b.0 - a.0, b.1 - a.1);
+            let u = (((x - a.0) * vx + (y - a.1) * vy) / (vx * vx + vy * vy)).clamp(0.0, 1.0);
+            let (px, py) = (a.0 + u * vx, a.1 + u * vy);
+            (px, py, (x - px).hypot(y - py))
+        }
+    }
+}
+
+/// Thêm giao điểm thủ công (hít vào chord gần nhất). Err = thông báo cho người dùng.
+pub fn add_manual(r: &mut MethodResult, x: f64, y: f64, kind: Kind, valid: &Img<bool>, tol: f64) -> Result<String, String> {
+    let mut best: Option<(usize, f64, f64, f64)> = None;
+    for (i, ch) in r.chords.iter().enumerate() {
+        let (px, py, d) = match (kind, ch) {
+            (Kind::Endpoint, Chord::Line { a, b, .. }) => {
+                let da = (a.0 - x).hypot(a.1 - y);
+                let db = (b.0 - x).hypot(b.1 - y);
+                if da <= db { (a.0, a.1, da) } else { (b.0, b.1, db) }
+            }
+            (Kind::Endpoint, _) => continue,
+            _ => project_point(ch, x, y),
+        };
+        if best.map_or(true, |b| d < b.3) {
+            best = Some((i, px, py, d));
+        }
+    }
+    let (i, px, py, d) = best.ok_or("Không có đường chord phù hợp.")?;
+    if d > tol {
+        return Err("Điểm click cách xa mọi đường chord.".into());
+    }
+    let (xi, yi) = (px.round() as i64, py.round() as i64);
+    if xi < 0 || yi < 0 || xi >= valid.w as i64 || yi >= valid.h as i64 || !valid.d[yi as usize * valid.w + xi as usize] {
+        return Err("Điểm nằm ngoài vùng đo (vùng tối).".into());
+    }
+    let id = r.chords[i].id().to_string();
+    if r.events.iter().any(|e| !e.removed && e.chord == id && (e.x - px).hypot(e.y - py) < 1.5) {
+        return Err("Đã có giao điểm tại vị trí này.".into());
+    }
+    r.events.push(Event { chord: id.clone(), x: px, y: py, kind, manual: true, removed: false });
+    r.edited = true;
+    Ok(id)
+}
+
+/// Loại giao điểm gần nhất: điểm thủ công bị xoá, điểm tự động được đánh dấu đã loại.
+pub fn remove_near(r: &mut MethodResult, x: f64, y: f64, tol: f64) -> Option<(String, bool)> {
+    let mut best: Option<(usize, f64)> = None;
+    for (i, e) in r.events.iter().enumerate() {
+        if e.removed {
+            continue;
+        }
+        let d = (e.x - x).hypot(e.y - y);
+        if d <= tol && best.map_or(true, |b| d < b.1) {
+            best = Some((i, d));
+        }
+    }
+    let (i, _) = best?;
+    let info = (r.events[i].chord.clone(), r.events[i].manual);
+    if r.events[i].manual {
+        r.events.remove(i);
+    } else {
+        r.events[i].removed = true;
+    }
+    r.edited = true;
+    Some(info)
+}
+
+pub fn restore_near(r: &mut MethodResult, x: f64, y: f64, tol: f64) -> bool {
+    let mut best: Option<(usize, f64)> = None;
+    for (i, e) in r.events.iter().enumerate() {
+        let d = (e.x - x).hypot(e.y - y);
+        if e.removed && d <= tol && best.map_or(true, |b| d < b.1) {
+            best = Some((i, d));
+        }
+    }
+    if let Some((i, _)) = best {
+        r.events[i].removed = false;
+        r.edited = true;
+        true
+    } else {
+        false
+    }
+}
+
+/// Vùng làm tối khi hiển thị = ngoài vùng đo, trừ hộp thanh scale.
+pub fn dark_mask(a: &Analysis) -> Img<bool> {
+    let mut m = Img { w: a.valid.w, h: a.valid.h, d: a.valid.d.iter().map(|&v| !v).collect() };
+    if let Some(e) = a.excl {
+        for y in e[1]..e[3].min(m.h) {
+            for x in e[0]..e[2].min(m.w) {
+                m.d[y * m.w + x] = false;
+            }
+        }
+    }
+    m
 }
 
 /// t(0,975; n−1) theo E112 Bảng 7.
@@ -647,6 +816,59 @@ pub fn t975(n: usize) -> f64 {
         2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048,
         2.045, 2.042];
     if n >= 2 && n <= 31 { T[n - 2] } else if n > 31 { 1.96 } else { f64::NAN }
+}
+
+/// Thống kê nhiều trường kèm đánh giá theo khuyến nghị E112 / E1382.
+#[derive(Clone, Debug)]
+pub struct Stats {
+    pub n: usize,
+    pub l_mean: f64,
+    pub sd: Option<f64>,
+    pub t: Option<f64>,
+    pub ci: Option<f64>,
+    pub ra: Option<f64>,
+    pub g: f64,
+    pub g_round: f64,
+    pub g_lo: Option<f64>,
+    pub g_hi: Option<f64>,
+    pub checks: Vec<(String, bool, String)>,
+}
+
+pub fn stats_with_checks(l: &[f64], p: &[f64], m: Method) -> Stats {
+    let n = l.len();
+    let mean = l.iter().sum::<f64>() / n as f64;
+    let g = g_from_l_um(mean);
+    let mut s = Stats { n, l_mean: mean, sd: None, t: None, ci: None, ra: None, g, g_round: round_g(g), g_lo: None,
+                        g_hi: None, checks: vec![] };
+    if n >= 2 {
+        let sd = (l.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1) as f64).sqrt();
+        let t = t975(n);
+        let ci = t * sd / (n as f64).sqrt();
+        s.sd = Some(sd);
+        s.t = Some(t);
+        s.ci = Some(ci);
+        s.ra = Some(100.0 * ci / mean);
+        s.g_lo = Some(g_from_l_um(mean + ci));
+        s.g_hi = if mean - ci > 0.0 { Some(g_from_l_um(mean - ci)) } else { None };
+    }
+    s.checks.push(("Số trường đo n ≥ 5 (E112 §13.2, §14.3.2)".into(), n >= 5, format!("n = {n}")));
+    match s.ra {
+        Some(ra) => s.checks.push(("Độ chính xác tương đối %RA ≤ 10 % (E112 §15.6)".into(), ra <= 10.0, format!("%RA = {ra:.1} %"))),
+        None => s.checks.push(("Độ chính xác tương đối %RA ≤ 10 % (E112 §15.6)".into(), false, "cần ≥ 2 trường".into())),
+    }
+    if !p.is_empty() {
+        let tot: f64 = p.iter().sum();
+        s.checks.push(("Tổng số giao điểm ≥ 500 (E1382 §12.4.3; E112 §14.3.2.1: 400–500)".into(), tot >= 500.0,
+                       format!("ΣP = {tot}")));
+        let (mn, mx) = p.iter().fold((f64::MAX, f64::MIN), |a, &v| (a.0.min(v), a.1.max(v)));
+        if m == Method::Heyn {
+            s.checks.push(("Mỗi trường ≥ 50 giao điểm (E112 §13.1)".into(), mn >= 50.0, format!("P nhỏ nhất = {mn}")));
+        } else {
+            s.checks.push(("Mỗi trường 40–150 giao điểm (E112 §14.3.2.1; E1382 §12.4.2)".into(), mn >= 40.0 && mx <= 150.0,
+                           format!("P: {mn} – {mx}")));
+        }
+    }
+    s
 }
 
 /// (ℓ tb, s, 95 %CI, %RA, G) cho n trường (E112 §15).

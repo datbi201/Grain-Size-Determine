@@ -1,0 +1,30 @@
+[package]
+name = "grain_size_determine"
+version = "0.1.1"
+edition = "2021"
+description = "Grain Size Determine – giao diện Rust (egui) đo cấp cỡ hạt ASTM E112 / E1382"
+
+[[bin]]
+name = "GrainSizeDetermine_rust"
+path = "src/main.rs"
+
+[dependencies]
+gsd_core = { path = "../rust-core" }
+eframe = { version = "0.29", default-features = false, features = ["glow", "default_fonts"] }
+egui = "0.29"
+rfd = "0.15"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+printpdf = "0.7"
+ttf-parser = "0.21"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4

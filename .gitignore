@@ -28,3 +28,4 @@ Desktop.ini
 
 # Rust
 rust-core/target/
+rust-app/target/
