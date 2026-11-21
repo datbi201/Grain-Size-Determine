@@ -9,10 +9,13 @@ Cập nhật lần cuối: 2026-11-21.
 - Bản exe `..\02_LOCAL_RUNTIME\GrainSizeDetermine\GrainSizeDetermine.exe` tự kiểm tra đạt (`--selftest`: phân tích + PDF). Zip: `..\03_ONEDRIVE_BACKUP\releases\GrainSizeDetermine_Rev0.1.zip`.
 - **Chưa thử bằng thao tác chuột thật**: kéo thả ảnh từ Explorer, click sửa giao điểm, lệnh In (gửi PDF cho chương trình đọc PDF mặc định). **Chưa nghiệm thu bởi người dùng.**
 
+- **Bản thử lõi Rust** (`rust-core/`, 2026-11-21): port 1:1 lõi tính, chưa có giao diện. Đối chiếu bản Python trên 40 ảnh mẫu: |ΔG| trung bình 0,001, lớn nhất 0,019; nhanh hơn ~1,7 lần; exe lõi 1,8 MB. Chi tiết: `rust-core/README.md`.
+
 ## Việc đang chờ
 1. Người dùng chạy thử Rev 0.1 và báo lại.
 2. Kho GitHub: `https://github.com/datbi201/Grain-Size-Determine` (**Public**, nhánh `main`, tạo ngày 2026-11-21 bằng `gh`). `gh` 2.105.0 cài ở `%LOCALAPPDATA%\Programs\GitHubCLI` (đã thêm vào PATH người dùng). Trước mỗi lần commit chạy `git pull --rebase origin main`.
-3. Đề xuất: kiểm chứng trên bộ ảnh có kết quả đếm tay của PTN; dịch báo cáo sang tiếng Anh nếu cần; nhãn thước bằng OCR để khỏi nhập µm.
+3. Nếu chuyển hẳn sang Rust: làm giao diện egui, báo cáo PDF, project `.gsd`, sửa thủ công trên nền `rust-core` (hiện mới là lõi).
+4. Đề xuất: kiểm chứng trên bộ ảnh có kết quả đếm tay của PTN; dịch báo cáo sang tiếng Anh nếu cần; nhãn thước bằng OCR để khỏi nhập µm.
 
 ## Môi trường build trên máy này
 - Python 3.12 (`py -3.12`) đã cài đủ thư viện trong `requirements.txt` + `pyinstaller`.
@@ -26,3 +29,4 @@ Cập nhật lần cuối: 2026-11-21.
 - 2026-11-21: chuẩn hoá theo E112-25 / E1382; kế thừa tính toán đã cân chỉnh của GSCM Rev.0.1 RC7; thêm Chord hỗn hợp (3 vòng tròn + 2 đường chéo); báo cáo PDF A4; chỉnh sáng/tương phản; chọn màu; sửa giao điểm thủ công.
 - 2026-11-21: nút Tự động chỉnh ảnh; không che tối vùng thước; cột «Báo cáo» chọn ảnh đưa vào báo cáo; báo cáo chọn được cả 3 phương pháp, có xem trước; biểu tượng mới cách điệu từ ảnh kim tương; lưu/mở project, hỏi lưu khi đóng; tổ chức thư mục 3 tầng như các dự án khác; kho mới `Grain-Size-Determine`, bắt đầu Rev 0.1.
 - 2026-11-21: cài `gh`; kho `Grain-Size-Determine` để **Public**.
+- 2026-11-21: làm thử lõi tính bằng Rust (giữ bản Python làm chuẩn đối chiếu).

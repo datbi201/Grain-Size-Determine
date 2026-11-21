@@ -5,7 +5,7 @@ Phần mềm Windows (Python/Tkinter) đo cấp cỡ hạt trung bình theo ASTM
 Người dùng là kỹ sư ăn mòn và toàn vẹn đường ống, không phải lập trình viên: báo cáo bằng kết quả, giao diện, bảng số; không dán mã thô vào trả lời.
 
 ## 2. Cấu trúc 3 tầng (thư mục cha `Grain Sizing`)
-- `01_REPO_GITHUB` (thư mục này): mã nguồn `src/`, biểu tượng `assets/`, công cụ `tools/` (build, tạo icon), kiểm thử `tests/`, tài liệu `docs/`. Có `.git`.
+- `01_REPO_GITHUB` (thư mục này): mã nguồn `src/` (Python), `rust-core/` (bản thử lõi Rust, build với `CARGO_TARGET_DIR=D:\gsd-target`), biểu tượng `assets/`, công cụ `tools/` (build, tạo icon), kiểm thử `tests/`, tài liệu `docs/`. Có `.git`.
 - `02_LOCAL_RUNTIME`: bản exe chạy thử `GrainSizeDetermine\GrainSizeDetermine.exe`. Không đưa vào git.
 - `03_ONEDRIVE_BACKUP`: `releases/` (zip các bản), `legacy_versions/` (bản cũ), `samples/` (ảnh mẫu). Không đưa vào git.
 

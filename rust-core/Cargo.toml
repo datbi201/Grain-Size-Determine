@@ -1,0 +1,16 @@
+[package]
+name = "gsd_core"
+version = "0.1.0"
+edition = "2021"
+description = "Lõi tính cỡ hạt ASTM E112 (bản thử Rust của grain_core.py)"
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp", "tiff", "webp"] }
+rayon = "1"
+serde_json = "1"
+mozjpeg = { version = "0.10", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
