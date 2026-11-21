@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Bản build và gói phát hành (để ở ..\02_LOCAL_RUNTIME và ..\03_ONEDRIVE_BACKUP)
+build/
+dist/
+*.spec
+*.exe
+*.dll
+*.zip
+
+# Dữ liệu người dùng / kết quả chạy thử
+*.gsd
+*.pdf
+Grain_Results/
+tests/_out/
+
+# Tệp tạm
+*.log
+*.tmp
+Thumbs.db
+desktop.ini
+Desktop.ini
+.DS_Store

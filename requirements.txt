@@ -1,0 +1,7 @@
+opencv-python
+numpy
+scikit-image
+tkinterdnd2
+reportlab
+pypdfium2
+pillow
